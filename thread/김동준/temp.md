@@ -129,15 +129,47 @@ public class StructureTest {
 `runContinuation` 객체는 중단 작업의 재개 시점을 관리하고 있다. 구체적으로 가상 스레드의 실행 흐름을 캡슐화한다.<br />
 객체의 내부에는 실제 가상 스레드가 수행할 작업 내용이 정의되어 있고 재개점을 호출하기 때문에 재귀 구조로 객체 참조가 이뤄진다.
 
-그리고 해당 가상 스레드를 실제로 실행하는 플랫폼 스레드가 바로 `carrierThread` 참조 객체에 지정되어 있다.<br />
-가상 스레드가 실행될 때 어떤 플랫폼 스레드가 이를 처리하는 지에 대한 정보가 명시되어 있다.
+![image](https://github.com/user-attachments/assets/c701cb36-02e3-4fb1-9439-2dbd4bfec16a)
+
+위 그림의 Carrier Thread2에서 Cont2 작업이 큐에 진입한다. 그 과정에서 Cont1 작업이 블로킹 처리됐다고 가정하자.<br />
+기존의 플랫폼 스레드는 블로킹이 되면 커널 스레드 자체를 중단하는 반면, 위의 Cont1 작업이 블로킹 처리됐을 때, **yield** 처리가 되는 걸 볼 수 있다.<br />
+즉, 작업이 중단되어도 다른 작업인 Cont2를 처리하고 그 동안 Cont1은 잠시 (스레드 개념의 대기가 아닌, 양보의 의미의) 대기 상태로 진입한다.
+
+![image](https://github.com/user-attachments/assets/cd5479a7-de33-44ab-a229-558ebbdf1c78)
+
+스레드가 대기 상태로 진입할 때 기존 플랫폼 스레드는 `Unsafe`의 네이티브 메소드인 `park()`를 호출하면서 대기상태로 진입한다.<br />
+가상 스레드 로직의 메소드를 타고 들어가보면 `VirtualThread`의 `park()` 메소드 내부에서 `private` 메소드인 `yieldContinuation()`을 호출하는데, 이 내부에 다른 스레드에게 제어권을 넘기는 로직이 구성되어 있다.
+
+```java
+final class VirtualThread extends BaseVirtualThread {
+
+    // ...
+
+    @Hidden
+    @ChangesCurrentThread
+    private boolean yieldContinuation() {
+        // unmount
+        // 현재 스레드 상태 변경(언마운트)
+        notifyJvmtiUnmount(/*hide*/true);
+        unmount();
+        try {
+            // 가상 스레드 실행 양보(실행 범위 : VTHREAD_SCOPE)
+            return Continuation.yield(VTHREAD_SCOPE);
+        } finally {
+            // re-mount
+            // 재실행하여 상태 복원(마운트)
+            mount();
+            notifyJvmtiMount(/*hide*/false);
+        }
+    }
+```
+
+이런 과정들을 거치며 해당 가상 스레드를 실제로 실행하는 플랫폼 스레드가 바로 `carrierThread` 참조 객체에 지정되어 있다.<br />
+가상 스레드가 실행될 때 어떤 플랫폼 스레드가 이를 처리하는 지에 대한 정보가 명시되어 있으며, 타입이 `Thread`로 되어있는 것을 볼 수 있다.
 
 ### (3) 결론
 
 종합하자면, 기존의 커널 모드 전환 비용을 지불하고 컨텍스트 스위칭이 이뤄진 것과 비교했을 때, JVM의 관리 하에서 `Continuation`을 활용하여 호출 스택의 상태 복원이 이뤄지기 때문에 커널 모드 전환 비용이 절감된다. 또한, 플랫폼 스레드의 고정 스택 크기(1 MB)에 비해 가상 스레드는 약 1~2 KB밖에 되지 않는 크기의 스택을 사용해서 스레드 수가 급증해도 부담이 덜하다.
-
-
-
 
 <div style="display: flex; justify-content: space-between;">
     <img src="https://github.com/user-attachments/assets/e53cd81b-b323-4ad5-80d8-a2b40c528ed7" alt="Image 1" style="width: 45%;"/>
@@ -146,21 +178,65 @@ public class StructureTest {
 
 또한, 플랫폼 스레드의 비동기 작업에는 `CompletableFuture` 같은 비동기 API가 필요했으나 가상 스레드는 동기식 코드로도 비동기 처리가 가능하며 입출력 같은 블로킹 작업이 발생해도 가상 스레드가 운영체제의 커널 스레드를 점유하지 않아도 되므로 운영체제의 스레드 낭비가 줄어들게 된다. 이는 플랫폼 스레드가 블로킹 처리에서 대기 상태로 강제 진입하므로 리소스 낭비가 발생되는 부분과 대비되는 점이다.
 
+### (4) 코드 기반 실행시간 비교
+
+```java
+public class StructureTest {
+
+    public static void main(String[] args) {
+        Runnable runnable = getRunnable();
+
+        // 기존 스레드풀 사용
+        long startTime = System.nanoTime();
+        try (ExecutorService platformService = Executors.newFixedThreadPool(100)) {
+            for (int i = 0; i < 10_000; i++) {
+                platformService.submit(runnable);
+            }
+        }
+        long endTime = System.nanoTime();
+        long durationPlatform = endTime - startTime;
+        System.out.println("플랫폼 스레드풀 실행 시간: " + durationPlatform / 1_000_000 + " ms");
+
+        System.out.println();
+
+        // 가상 스레드풀 사용
+        startTime = System.nanoTime();
+        try (ExecutorService virtualService = Executors.newVirtualThreadPerTaskExecutor()) {
+            for (int i = 0; i < 10_000; i++) {
+                virtualService.submit(runnable);
+            }
+        }
+        endTime = System.nanoTime();
+        long durationVirtual = endTime - startTime;
+        System.out.println("가상 스레드풀 실행 시간: " + durationVirtual / 1_000_000 + " ms");
+    }
+
+    private static Runnable getRunnable() {
+        return () -> {
+            for (long i = 0; i < 1000; i++) {
+            }
+
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        };
+    }
+}
+```
+
+<img width="715" alt="스크린샷 2024-12-01 오후 7 03 24" src="https://github.com/user-attachments/assets/91a79d6b-980b-42b0-9087-e3f1cb4b6562">
 
 
-비교
+| **특징**     | **플랫폼 스레드 (`newFixedThreadPool(N)`)**                                    | **가상 스레드 (`newVirtualThreadPerTaskExecutor()`)**                    |
+|--------------|-------------------------------------------------------------------------------|------------------------------------------------------------------------|
+| **스레드 수** | 고정된 N개의 플랫폼 스레드를 생성하고 유지                                     | 각 작업에 대해 새로운 가상 스레드를 생성                               |
+| **작업 처리** | 제출된 작업은 이미 생성된 스레드에서 처리                                      | 각 작업마다 새로운 가상 스레드가 생성되어 처리                        |
+| **리소스 관리** | 운영 체제의 리소스를 직접 사용, 비용이 큼                                       | JVM이 관리하며 OS 수준의 리소스를 직접 사용하지 않음, 더 가볍게 작동 |
+| **스케줄링**  | 운영 체제에서 직접 스레드 스케줄링을 처리                                       | JVM이 스레드 스케줄링 및 실행 관리를 효율적으로 처리                  |
+| **대기열**    | 작업이 많으면 대기열에 추가                                                     | 각 작업에 대해 새로운 가상 스레드가 생성되므로 대기열이 없음         |
 
-플랫폼 스레드
-- `newFixedThreadPool(5)`은 5개의 고정된 플랫폼 스레드를 생성하고 유지
-- 작업이 제출될 때, 스레드풀에서 이미 생성된 스레드 중 하나가 작업을 처리
-- 만약 작업이 많아 5개 이상의 작업이 제출되면, 대기열에 추가
-- 스레드는 운영 체제의 리소스를 직접 사용하며, 비용이 높음
-
-가상 스레드
-- `newVirtualThreadPerTaskExecutor()`는 작업당 새로운 가상 스레드를 생성
-- 가상 스레드는 JVM이 관리하며, OS 수준의 리소스를 직접 사용하지 않고 더 가볍게 작동
-- 작업이 제출되면 각 작업마다 새로운 가상 스레드가 생성되어 실행(스레드풀처럼 보이지만 실제로는 가상 스레드 하나당 하나의 작업을 처리)
-- 내부적으로 가상 스레드는 JVM이 스레드 스케줄링 및 실행 관리를 효율적으로 처리
 
 
 
