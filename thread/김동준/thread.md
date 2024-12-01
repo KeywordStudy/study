@@ -303,8 +303,8 @@ final class VirtualThread extends BaseVirtualThread
 MySQL JDBC 드라이버는 아직 가상 스레드를 지원하는 PR이 진행 중이라서 지원이 되지 않았으나 병합이 이뤄진 듯하다.<br />
 나중에 코드로 확인해봐야겠다.
 
->*참고*
->*https://bugs.mysql.com/bug.php?id=110512*
+>*참고*<br />
+>*https://bugs.mysql.com/bug.php?id=110512*<br />
 >*https://github.com/mysql/mysql-connector-j/commit/00d43c5e8b24f1d516f93eea900b3487c15a489c*
 
 
