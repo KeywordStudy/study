@@ -237,9 +237,78 @@ public class StructureTest {
 | **스케줄링**  | 운영 체제에서 직접 스레드 스케줄링을 처리                                       | JVM이 스레드 스케줄링 및 실행 관리를 효율적으로 처리                  |
 | **대기열**    | 작업이 많으면 대기열에 추가                                                     | 각 작업에 대해 새로운 가상 스레드가 생성되므로 대기열이 없음         |
 
+# 가상 스레드 추가 정리
+
+## 1. 기존 코드와의 통합
+
+가상 스레드에 대한 매커니즘은 `VirtualThread`라는 별도의 상속 불가 클래스에 정의되어 있다.<br />
+그렇지만 가상 스레드를 실행하는 방법으로 주어지는 대표적인 3가지를 보면 의아한 점이 있다.
+
+```java
+// 태스크 정의
+Runnable runnable = getRunnable();
+
+// 1
+Thread virtualThread1 = Thread.startVirtualThread(runnable);
+
+// 2
+Thread.Builder builder = Thread.ofVirtual();
+Thread virtualThread2 = builder.start(runnable);
+
+// 3 (ExecutorService 기반)
+try (ExecutorService virtualThreads = Executors.newVirtualThreadPerTaskExecutor()) {
+    virtualThreads.submit(runnable);
+}
+```
+
+보면 기존에도 존재했던 `Thread` 객체 혹은 `ExecutorService`를 기반으로 가상 스레드가 생성된다.<br />
+이렇게 설계된 이유는 기존 코드와의 통합성을 위해서다. 소위 말하는 **다형성**을 활용하여 기존 클래스 범위에서 충분히 커버할 수 있다.<br />
+
+```java
+sealed abstract class BaseVirtualThread extends Thread
+
+final class VirtualThread extends BaseVirtualThread
+```
+
+## 2. 가상 스레드와 관련된 유의점, 고려할 점
+
+#### 캐리어 스레드 블로킹
+가상 스레드는 캐리어 스레드에서 실행되기 때문에, 캐리어 스레드가 블로킹되면 전체 시스템 성능에 영향을 미칠 수 있다. 예를 들어, 사용 중인 자원에 접근하는 것을 블로킹하는 `synchronized`나 공유 자원 동기화 등으로 블로킹이 발생할 수 있는 `parallelStream`이 영향을 받을 수 있는 가상 스레드를 사용할 때 주의해야 한다.<br />
+그래서 `ReentrantLock`을 사용하여 동기화 문제를 해결하는 것이 권장된다. `ReentrantLock`은 더 세밀한 동기화 및 성능 최적화를 제공하며, 가상 스레드의 장점을 최대한 활용할 수 있다.
+
+#### 풀링 사용 x
+가상 스레드는 생성 비용이 낮아 매번 새로운 스레드를 생성하고, 사용 후 GC가 자동으로 처리한다. 따라서 스레드풀을 사용하여 개수에 제한을 두는 방식은 필요하지 않기 때문에 `ExecutorService` 기반 생성에서 파라미터가 필요 없다.
+
+#### CPU 집약적인 작업
+가상 스레드는 논블로킹 입출력 작업에 최적화되어 있지만, CPU 집약적인 작업에서는 성능이 떨어질 수 있다.<br /> 
+만약 CPU 바운드 작업을 가상 스레드로 처리하면, Carrier Thread 위에서 실행되므로 성능 낭비가 발생할 수 있기 떄문에 CPU를 많이 사용하는 작업은 가상 스레드 대신 일반 스레드를 사용하는 것이 더 효율적일 수 있다.
+
+> CPU 집약적인 작업 : CPU 성능에 의존하는 작업(ex) 복잡한 수학 연산, 이미지나 비디오 처리)
+
+#### ScopedValue (Thread Local 대체)
+가상 스레드에서는 Java에서 각 스레드가 독립적인 값을 저장할 수 있도록 제공되는 클래스인 `ThreadLocal`을 사용하기 어렵거나 성능 저하를 초래할 수 있어서 이를 대체하기 위해 JDK 21에서 `ScopedValue`라는 새로운 기능이 도입됐디.<br /> 
+`ScopedValue`는 ThreadLocal의 대안으로, 스레드 범위에서 값의 전달을 효율적으로 처리할 수 있고 가상 스레드와 잘 통합되어, 동시성 처리에서 더욱 효율적인 상태 관리가 가능하다.
+
+#### 가상 스레드 vs 코틀린 코루틴(Coroutine)
+**가상 스레드**는 스레드 단위로 동작하고, **Coroutine**은 메소드 단위로 동작한다.<br /> 
+가상 스레드는 스레드 스케줄링을 직접 처리하지만, 코루틴은 메소드 실행을 중단/재개할 수 있어 더 작은 단위에서 높은 동시성을 처리할 수 있고 특정 작업을 종료하거나 캔슬할 수 있기 때문에, 더 세밀한 제어가 가능하다.
+
+#### 가상 스레드 vs WebFlux
+**WebFlux**는 배압(BackPressure)을 지원하는데, 이는 가상 스레드에서는 지원되지 않는다.<br />
+배압을 처리하는 방법은 세마포어를 사용하거나 애플리케이션 코드에서 처리해야 하는데, WebFlux는 비동기 흐름을 잘 처리하며 배압 기능을 지원하지만 가상 스레드는 이와 같은 기능이 부족하기 때문에 애플리케이션 레벨에서 배압을 처리해야 한다.
+
+>Backpressure은 Publisher가 끊임없이 emit하는 무수히 많은 데이터를 적절하게 제어하여 데이터 처리에 과부하가 걸리지 않도록 제어하는 것
+
+#### 가상 스레드 & MySQL JDBC Driver
+MySQL JDBC 드라이버는 아직 가상 스레드를 지원하는 PR이 진행 중이라서 지원이 되지 않았으나 병합이 이뤄진 듯하다.<br />
+나중에 코드로 확인해봐야겠다.
+
+>*참고*
+>*https://bugs.mysql.com/bug.php?id=110512*
+>*https://github.com/mysql/mysql-connector-j/commit/00d43c5e8b24f1d516f93eea900b3487c15a489c*
 
 
-
+---
 *출처*<br />
 *https://ride-wind.tistory.com/119*<br />
 *https://perfectacle.github.io/2022/12/29/look-over-java-virtual-threads/*<br />
