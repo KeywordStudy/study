@@ -61,6 +61,8 @@ public class StructureTest {
             }
         }
 
+        System.out.println();
+
         try (ExecutorService virtualService = Executors.newVirtualThreadPerTaskExecutor()) {
             for (int i = 0; i < 5; i++) {
                 virtualService.submit(runnable);
@@ -70,19 +72,16 @@ public class StructureTest {
 
     private static Runnable getRunnable() {
         AtomicLong index = new AtomicLong();  // 인덱스 원자적 연산
-        int count = 100;  // 각 태스크 당 작업 100번 실행
-        CountDownLatch countDownLatch = new CountDownLatch(count);  // 100번 완료될 때까지 대기
 
         return () -> {
-            try {
                 long indexValue = index.incrementAndGet();
-                Thread.sleep(1000L);
-                System.out.println("\n스레드 명칭: " + Thread.currentThread().getName() + "\n인덱스: " + indexValue);
-
-                countDownLatch.countDown();
-            } catch (final InterruptedException e) {
-                countDownLatch.countDown();
-            }
+                try {
+                    Thread.sleep(1000L);
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                } finally {
+                    System.out.println("스레드 명칭: " + Thread.currentThread().getName() + "\n인덱스: " + indexValue);
+                }
         };
     }
 }
@@ -92,6 +91,60 @@ public class StructureTest {
 각 태스크는 스레드 당 100번씩 수행되며, 작업 내용에는 인덱스의 원자적 증가연산과 해당 스레드의 이름 로깅이 들어있다.<br />
 코드를 작성해서 실행한 후, 로깅과 디버깅을 해본다.<br />
 
+### (1) 로깅
+
+<img width="1116" alt="로깅" src="https://github.com/user-attachments/assets/07227c1a-7a69-46eb-9de4-a2c1b25889d7">
+
+시도할 때마다 인덱스의 순서는 다르지만 원자적 연산으로 안전하게 10까지 인덱스가 증가하게 된다.<br />
+여담으로 인덱스 변수가 메소드 내의 지역변수임에도 스레드 안전하게 동작할 수 있는 이유는 `main()` 메소드에서 하나의 `Runnable` 객체를 스레드들이 공유하기 때문이다.<br />
+즉, 모든 스레드가 동일한 `AtomicLong` 인스턴스 변수를 사용하기 때문에 스레드 개수에 맞춰서 인덱스 증가연산이 이뤄질 수 있다.
+
+아무튼 로깅을 확인해보면 `newFixedThreadPool(5)`로 생성한 스레드는 스레드 이름이 찍히지만, `newVirtualThreadPerTaskExecutor()`는 이름이 없다.<br />
+그 이유는 자바 공식문서에 나와있는데...
+
+>Virtual threads do not have a thread name by default. The getName method returns the empty string if a thread name is not set.
+>
+>Virtual threads are daemon threads and so do not prevent the shutdown sequence from beginning. Virtual threads have a fixed thread priority that cannot be changed...
+>
+>*출처 : https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/Thread.html*
+
+그냥 디폴트로 이름을 세팅하지 않는다고 한다.
+
+### (2) 디버깅
+
+이제 디버깅을 해본다. 우선 플랫폼 스레드풀 서비스부터 디버깅을 해보자.
+
+<img width="1312" alt="스크린샷 2024-12-01 오후 4 19 09" src="https://github.com/user-attachments/assets/974ce5ca-aa50-4a53-a460-993d0824efd2">
+
+로깅에서 봤던 스레드 이름은 클래스 내부 필드 참조 객체인 `threadFactory`에서 명명되는 것을 확인할 수 있다.<br />
+또한, `HashSet` 구조를 가진 `workers` 객체에서 각 스레드들이 생명주기를 가지고 있다.
+
+<img width="1328" alt="스크린샷 2024-12-01 오후 4 34 08" src="https://github.com/user-attachments/assets/d730db81-4094-43b3-bfb6-aa1f293a7123">
+
+가상 스레드풀 서비스 디버깅에서 확인할 참조 객체는 `scheduler`, `runContinuation`, `carrierThread`이다
+
+아까 가상 스레드는 JVM의 스케줄러에 의해 관리된다고 했는데 디버깅에 따르면 `ForkJoinPool` 타입의 객체를 참조하고 있다.<br />
+`scheduler`가 가상 스레드의 작업을 실행하기 위한 스케줄러 참조값이며, JVM에서 관리되는(스레드 매핑 역할을 맡는) 플랫폼 스레드가 담당한다.
+
+`runContinuation` 객체는 중단 작업의 재개 시점을 관리하고 있다. 구체적으로 가상 스레드의 실행 흐름을 캡슐화한다.<br />
+객체의 내부에는 실제 가상 스레드가 수행할 작업 내용이 정의되어 있고 재개점을 호출하기 때문에 재귀 구조로 객체 참조가 이뤄진다.
+
+그리고 해당 가상 스레드를 실제로 실행하는 플랫폼 스레드가 바로 `carrierThread` 참조 객체에 지정되어 있다.<br />
+가상 스레드가 실행될 때 어떤 플랫폼 스레드가 이를 처리하는 지에 대한 정보가 명시되어 있다.
+
+### (3) 결론
+
+종합하자면, 기존의 커널 모드 전환 비용을 지불하고 컨텍스트 스위칭이 이뤄진 것과 비교했을 때, JVM의 관리 하에서 `Continuation`을 활용하여 호출 스택의 상태 복원이 이뤄지기 때문에 커널 모드 전환 비용이 절감된다. 또한, 플랫폼 스레드의 고정 스택 크기(1 MB)에 비해 가상 스레드는 약 1~2 KB밖에 되지 않는 크기의 스택을 사용해서 스레드 수가 급증해도 부담이 덜하다.
+
+
+
+
+<div style="display: flex; justify-content: space-between;">
+    <img src="https://github.com/user-attachments/assets/e53cd81b-b323-4ad5-80d8-a2b40c528ed7" alt="Image 1" style="width: 45%;"/>
+    <img src="https://github.com/user-attachments/assets/d09f64de-8814-48a4-b81b-3525f97f1bec" alt="Image 2" style="width: 45%;"/>
+</div>
+
+또한, 플랫폼 스레드의 비동기 작업에는 `CompletableFuture` 같은 비동기 API가 필요했으나 가상 스레드는 동기식 코드로도 비동기 처리가 가능하며 입출력 같은 블로킹 작업이 발생해도 가상 스레드가 운영체제의 커널 스레드를 점유하지 않아도 되므로 운영체제의 스레드 낭비가 줄어들게 된다. 이는 플랫폼 스레드가 블로킹 처리에서 대기 상태로 강제 진입하므로 리소스 낭비가 발생되는 부분과 대비되는 점이다.
 
 
 
