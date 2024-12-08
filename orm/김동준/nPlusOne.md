@@ -429,13 +429,13 @@ public interface TeamRepository extends JpaRepository<Team, Long> {
 
 `@EntityGraph`의 경우 페치 타입을 Eager로 변환, 즉 즉시 로딩하는 방식으로 `outer left join`을 수행하여 데이터를 가져오지만, `Fetch Join`의 경우 따로 `outer join`으로 명시하지 않는 경우 `inner join`을 수행한다는 점에서 차이가 있다.
 
-### (2) 연속된 1:N 관계에서의 사용 불가
+#### (2) 연속된 1:N 관계에서의 사용 불가
 
 연속된 1:N 관계에서 사용할 수 없다.
 
 <img width="965" alt="스크린샷 2024-12-08 오전 4 15 40" src="https://github.com/user-attachments/assets/eb17f26f-e5ef-4788-8a9d-bf8c7cbea87d">
 
-### (3) 복수의 1:N 관계에서는 사용 불가
+#### (3) 복수의 1:N 관계에서는 사용 불가
 
 역시 복수의 1:N 관계에서 사용할 수는 없다.
 
