@@ -459,9 +459,45 @@ public interface ARepository extends JpaRepository<A,Long> {
 
 배치 사이즈 크기가 너무 크면 메모리 부담이, 너무 작으면 효율성이 떨어지기 때문에 적당한 값 선택이 필요하며 기본적으로 지연 로딩에 영향을 미치므로 즉시 로딩 전략에서는 효과를 기대하기 어렵다.
 
+### 6) 트래픽 비교 테스트
+
+아무런 조치를 취하지 않은 케이스, Fetch Join 케이스, EntityGraph 케이스, Batch Size 케이스까지 총 4가지에 대하여 일전의 `Team` 엔티티 기반으로 team 스키마와 member 스키마에서 리스트 내용을 조회하는 트래픽 테스트를 수행해본다. 테스트 조건 및 환경은 아래와 같다.
+
+>- 테스트 툴: Apache JMeter
+>- 가상 사용자수: 10000
+>- 램프 업 타임: 10
+>- 루프 카운트: 1
+
+#### (1) 기본 케이스
+
+<img width="836" alt="그냥" src="https://github.com/user-attachments/assets/e05cbdcc-76bc-4c0b-bd29-07ec5eccb9e2" />
+<img width="49%" src="https://github.com/user-attachments/assets/28751609-33a1-46d6-9106-c601a39a695d" />
+<img width="49%" src="https://github.com/user-attachments/assets/5257a1b4-bd04-42d4-9a22-cfd4285d72c4" />
+
+#### (2) Fetch Join 케이스
+
+<img width="840" alt="페치조인" src="https://github.com/user-attachments/assets/f427a62b-6b3f-4f6c-9a71-70f4d6323298" />
+<img width="49%" src="https://github.com/user-attachments/assets/02f4e9a4-9914-47c4-93b4-98ff0ac8f9fd" />
+<img width="49%" src="https://github.com/user-attachments/assets/e7d5c710-9d19-49d0-a2a6-244ccf71114c" />
+
+#### (3) EntityGraph 케이스
+
+<img width="839" alt="엔티티그래프" src="https://github.com/user-attachments/assets/b88d4d06-78af-4051-99ae-3c5b4ce50daa" />
+<img width="49%" src="https://github.com/user-attachments/assets/9f4f64f6-ffbe-4a82-8d7e-e581008959e7" />
+<img width="49%" src="https://github.com/user-attachments/assets/b52f73f2-2da0-472a-82da-cce378fdf709" />
+
+#### (4) Batch Size 케이스
+
+<img width="836" alt="배치사이즈" src="https://github.com/user-attachments/assets/b4ee6f3c-e4c0-4f4b-b29d-0bd386c557b9" />
+<img width="49%" src="https://github.com/user-attachments/assets/9fca8b3f-e336-4f37-b814-ba3d408a4ab1" />
+<img width="49%" src="https://github.com/user-attachments/assets/ebc0f064-bf18-4fea-bdc4-6e5a41a5da28" />
+
+
 ## 4. 결론
 
 단일 부모 및 자식 엔티티 관계에서의 N+1 문제 해결책으로써는 적정하나, 복합적인 1:N 관계를 일괄 조회 처리하는 데에는 무리가 있는 해결책들로 보이므로 이 경우에는 JDBC를 활용하거나 QueryDSL 등을 활용하여 커스텀 쿼리를 작성해 활용하는 것이 올바른 해결책으로 작동할 것으로 보인다.
+
+트래픽 제어의 관점에서는 N+1 문제 역시 대용량 트래픽 상황에서 성능 저하를 일으키는 요소 중 하나인 것을 확인했으며, 비즈니스 로직이 간편한 케이스에서 Fetch Join이 가장 높은 처리량을 보였다. 다만 지연시간 관점에서는 유의미한 결과가 보이지 않아서 실제 복잡한 케이스에서의 세부적인 비교가 필요한 것으로 보인다.
 
 ---
 
