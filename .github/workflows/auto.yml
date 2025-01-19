@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
-          token: ${{ secrets.TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}  # 깃헙액션이 자동으로 세팅하는 토큰(별도 변수 세팅 불필요))
 
       # 2. 모든 브랜치 정보 가져오기
       - name: Fetch all branches
