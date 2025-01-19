@@ -1,0 +1,43 @@
+# This is a basic workflow to help you get started with Actions
+
+name: CI
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push or pull request events but only for the "main" branch
+  pull_request:
+    branches: [ "main" ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # 1. 레포지토리 클론
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # 2. KimDongJun 브랜치 업데이트
+      - name: Sync with KimDongJun
+        run: |
+          git config --global user.name "kimD0ngjun"
+          git config --global user.email "chickentasty0112@gmail.com"
+          git checkout KimDongJun
+          git pull origin KimDongJun
+          git pull origin main
+          git push origin KimDongJun
+
+      # 3. SongAhreum 브랜치 업데이트
+      - name: Sync with SongAhreum
+        run: |
+          git checkout SongAhreum
+          git pull origin SongAhreum
+          git pull origin main
+          git push origin SongAhreum
