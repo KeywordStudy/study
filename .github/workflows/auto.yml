@@ -5,6 +5,9 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
+permissions:
+  contents: write  # 권한 부여
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -34,7 +37,7 @@ jobs:
       # 4. SongAhreum 브랜치 업데이트
       - name: Sync with SongAhreum
         run: |
-          git checkout SongAhreum || git checkout -b SongAhreum origin/SongAhreum
+          git checkout SongAhreum
           git pull origin SongAhreum
           git pull origin main
           git push origin SongAhreum
