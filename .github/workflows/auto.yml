@@ -37,7 +37,7 @@ jobs:
       # 4. SongAhreum 브랜치 업데이트
       - name: Sync with SongAhreum
         run: |
-          git checkout SongAhreum
+          git checkout SongAhreum || git checkout -b SongAhreum origin/SongAhreum
           git pull origin SongAhreum
           git pull origin main
           git push origin SongAhreum
