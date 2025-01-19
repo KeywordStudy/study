@@ -23,6 +23,12 @@ jobs:
       # 1. 레포지토리 클론
       - name: Checkout repository
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      # + 모든 브랜치 갖고오기
+      - name: Fetch all branches
+        run: git fetch --all
 
       # 2. KimDongJun 브랜치 업데이트
       - name: Sync with KimDongJun
