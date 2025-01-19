@@ -34,10 +34,10 @@ jobs:
           git pull origin main
           git push origin KimDongJun
 
-      # 4. SongAhreum 브랜치 업데이트
-      - name: Sync with SongAhreum
+      # 4. SongAhream 브랜치 업데이트
+      - name: Sync with SongAhream
         run: |
-          git checkout SongAhreum || git checkout -b SongAhreum origin/SongAhreum
-          git pull origin SongAhreum
+          git checkout SongAhream
+          git pull origin SongAhream
           git pull origin main
-          git push origin SongAhreum
+          git push origin SongAhream
