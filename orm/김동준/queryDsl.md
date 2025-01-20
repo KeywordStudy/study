@@ -302,31 +302,16 @@ QueryDSL은 **쿼리 작성**을 맡으며 hibernate가 실제 데이터베이�
 
 즉, 저 두 개의 쿼리 출력은 각각 QueryDSL이 작성한 JPQL 쿼리와 hibernate가 실행하는 쿼리다.
 
-## 2) 5.0 버전에서의 JOIN 문법에 대한 이슈
+## 2) 복잡한 예제 - 연관관계를 기반으로
 
-테스트하려는 SQL은 다음과 같다.
+*참조*\
+*https://sjh9708.tistory.com*
 
-```sql
-SELECT p1.title, p1.content     // title 필드와 content 필드 조회
-FROM post p1                    // post 테이블로부터
-JOIN (                          // JOIN : 두 개 테이블 묶어서 하나의 결과로 반환
-    SELECT content              // join) content 필드 조회
-    FROM post                   // join) post 테이블로부터
-    GROUP BY content            // join) content 값이 같은 행들 묶어서 그룹핑
-    HAVING COUNT(*) > 1         // join) 그룹에 대한 조건, 여기서는 카운팅해서 2이상인 그룹 반환
-) p2 ON p1.content = p2.content // join 조건, 서브쿼리 먼저 완료 후 (여기선) 서브쿼리 결과 행을 보유한 애들을 외부 post 테이블에서 조회
-ORDER BY p1.title;              // title 행 기준으로 순서 정렬
-```
+연관관계 세팅을 위한 테이블 간의 관계는 다음과 같다.
 
-이것을 바탕으로 QueryDSL 메소드를 (자연스럽게 생각나는대로) 짜면 아래와 같지만 컴파일 에러를 경고하는 빨간 줄이 죽 그인다.
-
-```java
-
-```
+<img width="80%" alt="Image" src="https://github.com/user-attachments/assets/1a7fbc61-5220-4aac-bff8-7d0174b83492" />
 
 
-## 3) Tuple에 대한 처리
+### (1) JOIN 이슈 및 N+1 이슈
 
-## 4) CASE WHEN 및 GROUP BY 문법
-
-## 5) 연관관계와 N+1 이슈
+### (2) 서브쿼리 이슈
