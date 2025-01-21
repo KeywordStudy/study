@@ -311,7 +311,108 @@ QueryDSL은 **쿼리 작성**을 맡으며 hibernate가 실제 데이터베이�
 
 <img width="80%" alt="Image" src="https://github.com/user-attachments/assets/1a7fbc61-5220-4aac-bff8-7d0174b83492" />
 
+각각의 엔티티는 다음과 같다.
+
+```java
+@Entity
+@Table(name = "author")
+@Getter
+@Setter
+public class Author {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String name;
+
+    private String gender;
+
+    private Integer age;
+
+    @OneToMany(mappedBy = "author", cascade = CascadeType.ALL)
+    private List<Book> book = new ArrayList<>();
+
+    @ManyToOne(fetch=FetchType.LAZY)
+    @JoinColumn(name = "organization_id")
+    private Organization organization;
+}
+```
+```java
+@Entity
+@Table(name = "Book")
+@Getter
+@Setter
+public class Book {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String title;
+
+    @ManyToOne(fetch=FetchType.LAZY)
+    @JoinColumn(name = "author_id")
+    private Author author;
+
+    @OneToMany(mappedBy = "book", cascade = CascadeType.ALL)
+    private List<Review> reviews = new ArrayList<>();
+}
+```
+```java
+@Entity
+@Table(name = "organization")
+@Getter
+@Setter
+public class Organization {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String orgName;
+
+    @OneToMany(mappedBy = "organization", cascade = CascadeType.ALL)
+    private List<Author> authors = new ArrayList<>();
+}
+```
+```java
+@Entity
+@Table(name = "review")
+@Getter
+@Setter
+public class Review {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String comment;
+
+    @ManyToOne
+    @JoinColumn(name = "book_id")
+    private Book book;
+}
+```
 
 ### (1) JOIN 이슈 및 N+1 이슈
+
+SQL에서 JOIN 연산은 두 개 이상의 테이블을 연결하거나 결합하여 결과 데이터를 반환한다. 일반적으로 JOIN은 **외래 키** 관계를 통하여 처리된다.
+
+이 JOIN 연산 역시 QueryDSL로도 가능한데 QueryDSL에서 제공하는 JOIN 연산 메소드는 아래와 같다.
+
+>- `join()` : Inner Join, 두 테이블 간의 공통된 값이 있는 행만 반환
+>- `innerJoin()` : Inner Join
+>- `leftJoin()` : Left Outer Join, 왼쪽 테이블의 모든 행을 반환하고, 오른쪽 테이블에서 일치하는 값이 없으면 NULL로 표시(왼쪽 우선)
+>- `rightJoin()` : Rigth Outer Join, 오른쪽 테이블의 모든 행을 반환하고, 왼쪽 테이블에서 일치하는 값이 없으면 NULL로 표시(오른쪽 우선)
+
+기본적인 JOIN 방법으로는 `join(조인 대상, QType)`의 형태로 두 번째 파라미터로는 **별칭(Alias)** 으로 사용할 Q타입을 지정하면 된다. 해당 방식은 연관관계 외래키를 통해서 조인한다는 것을 의미한다. 쿼리가 복잡해질 경우 기본적으로 Static Import되는 Q타입 이외에 중복되지 다른 별칭을 지정한 동일한 엔터티의 Q타입을 사용해야 하는 경우가 있다.
+ 
+#### leftJoin(), rightJoin()
+
+#### N+1 이슈 확인 및 이를 위한 fetchJoin()
+
+#### 자기 자신과의 참조에 따른 별칭 활용
+
+예를 들어 자기 자신과의 연관 관계일 때의 케이스로 `leftJoin(member.member, member)`로는 사용할 수 없기 때문에 별칭 Q타입이 필요한 경우가 생긴다.
 
 ### (2) 서브쿼리 이슈
